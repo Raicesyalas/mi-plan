@@ -1,0 +1,16 @@
+{
+  "name": "Mi Plan",
+  "short_name": "Mi Plan",
+  "description": "Plan alimenticio, recetas y súper de la familia",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f1f4ef",
+  "theme_color": "#2f6b3f",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
