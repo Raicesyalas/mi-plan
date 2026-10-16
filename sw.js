@@ -1,5 +1,5 @@
 // Guarda la app para que abra rápido y sin internet. Los datos los maneja Firebase.
-const CACHE = "mi-plan-v2";
+const CACHE = "mi-plan-v3";
 const FILES = ["./", "index.html", "styles.css", "app.js", "fb.js", "data.js", "manifest.webmanifest", "icons/icon-192.png", "icons/apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });

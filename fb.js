@@ -1,6 +1,6 @@
 // Conexión con Firebase (usuarios y base de datos)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, updatePassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, onSnapshot, collection, query, where, orderBy, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -24,6 +24,7 @@ export const FB = {
   signUp: (e, p) => createUserWithEmailAndPassword(auth, e, p),
   reset: e => sendPasswordResetEmail(auth, e),
   signOut: () => signOut(auth),
+  updatePass: pw => updatePassword(auth.currentUser, pw),
   get: async path => { const s = await getDoc(doc(db, path)); return s.exists() ? s.data() : null; },
   set: (path, data) => setDoc(doc(db, path), data),
   watch: (path, cb, err) => onSnapshot(doc(db, path), s => cb(s.exists() ? s.data() : null, s.metadata.hasPendingWrites), err),
@@ -35,7 +36,7 @@ export const FB = {
   },
   claim: async (uid, person) => {
     const b = writeBatch(db);
-    b.set(doc(db, "people/" + person), { uid, at: Date.now() });
+    b.set(doc(db, "names/" + person), { uid, at: Date.now() });
     b.set(doc(db, "members/" + uid), { person, at: Date.now() });
     await b.commit();
   }

@@ -46,11 +46,11 @@ const nice = s => { const d = fromIso(s); return `${d.getDate()} de ${MONTHS[d.g
 const TODAY = iso(new Date());
 const clone = o => JSON.parse(JSON.stringify(o));
 function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => el.hidden = true, 2400); }
-const AUTH_ERR = { "auth/invalid-credential": "Correo o contraseña incorrectos.", "auth/wrong-password": "Correo o contraseña incorrectos.", "auth/user-not-found": "No hay una cuenta con ese correo.", "auth/email-already-in-use": "Ya existe una cuenta con ese correo. Tocá «Ya tengo cuenta».", "auth/weak-password": "La contraseña debe tener al menos 6 caracteres.", "auth/invalid-email": "Revisá el correo, no parece válido.", "auth/network-request-failed": "No hay conexión a internet.", "auth/too-many-requests": "Demasiados intentos. Esperá unos minutos." };
+const AUTH_ERR_OLD = { "auth/invalid-credential": "Correo o contraseña incorrectos.", "auth/wrong-password": "Correo o contraseña incorrectos.", "auth/user-not-found": "No hay una cuenta con ese correo.", "auth/email-already-in-use": "Ya existe una cuenta con ese correo. Tocá «Ya tengo cuenta».", "auth/weak-password": "La contraseña debe tener al menos 6 caracteres.", "auth/invalid-email": "Revisá el correo, no parece válido.", "auth/network-request-failed": "No hay conexión a internet.", "auth/too-many-requests": "Demasiados intentos. Esperá unos minutos." };
 
 // ---------- estado
 const S = { user: null, person: null, tab: "hoy", date: TODAY, day: null, plans: { N: [], K: [], S: [] }, history: [], shop: null,
-  shopFilter: "all", rq: "", ch: "all", planWho: null, planView: null, editing: null, unsubs: [], dayUnsub: null, authMode: "in", authErr: "", taken: {} };
+  shopFilter: "all", rq: "", ch: "all", planWho: null, planView: null, editing: null, unsubs: [], dayUnsub: null, login: { p: null, pin: "", pin1: null, err: "", busy: false }, names: {}, claiming: null, pinEdit: null };
 let saveTimer = null, saveChain = Promise.resolve(), pendingDel = null;
 
 const visibleOwners = () => S.person === "S" ? ["S", "N", "K"] : S.person === "K" ? ["K", "N"] : ["N", "K"];
@@ -68,14 +68,17 @@ FB.onUser(async u => {
   S.unsubs.forEach(f => f()); S.unsubs = []; if (S.dayUnsub) S.dayUnsub(); S.dayUnsub = null;
   S.user = u; S.person = null; S.day = null; S.tab = "hoy"; S.editing = null;
   document.getElementById("tabs").hidden = true;
-  if (!u) { renderAuth(); return; }
+  if (!u) { await loadNames(); renderAuth(); return; }
   try {
-    const m = await FB.get("members/" + u.uid);
-    if (m && m.person) { S.person = m.person; startData(); }
-    else { await loadTaken(); renderPick(); }
+    let m = await FB.get("members/" + u.uid);
+    if (!m && S.claiming) { const p = S.claiming; S.claiming = null; await FB.claim(u.uid, p); m = { person: p }; }
+    if (m && m.person) { S.person = m.person; S.login = { p: null, pin: "", pin1: null, err: "", busy: false }; startData(); }
+    else { await FB.signOut(); }
   } catch (e) { console.warn(e); document.getElementById("app").innerHTML = `<div class="splash"><p>No se pudo conectar. Revisá tu internet y volvé a abrir la app.</p><button class="btn" data-logout="1">Salir</button></div>`; }
 });
-async function loadTaken() { S.taken = {}; for (const p of ["N", "K", "S"]) { try { S.taken[p] = !!(await FB.get("people/" + p)); } catch (e) { S.taken[p] = false; } } }
+async function loadNames() { for (const p of ["N", "K", "S"]) { try { S.names[p] = !!(await FB.get("names/" + p)); } catch (e) { S.names[p] = !!S.names[p]; } } }
+const loginEmail = p => p.toLowerCase() + "@miplan-ruizreal.app";
+const loginPass = (p, pin) => "MiPlan-" + pin + "-" + p;
 
 function startData() {
   const err = e => console.warn(e);
@@ -105,25 +108,38 @@ function setSync(t) { const el = document.getElementById("sync"); if (el) el.tex
 
 // ---------- auth
 function renderAuth() {
-  const up = S.authMode === "up";
-  document.getElementById("app").innerHTML = `<div class="auth">
-   <div class="brand"><img src="icons/icon-192.png" alt=""><h1>Mi Plan</h1><p class="muted" style="margin:0">El plan de comidas, recetas y súper de la familia</p></div>
-   <form id="authform" class="card" novalidate>
-    <h2>${up ? "Crear mi cuenta" : "Entrar"}</h2>
-    <label class="f">Correo<input type="email" id="a-email" autocomplete="email" inputmode="email" required></label>
-    <label class="f">Contraseña<input type="password" id="a-pass" autocomplete="${up ? "new-password" : "current-password"}" required minlength="6"></label>
-    ${up ? `<p class="small muted" style="margin:0">Usá una contraseña de al menos 6 caracteres que no uses en otro lado.</p>` : ""}
-    ${S.authErr ? `<p class="err" role="alert">${esc(S.authErr)}</p>` : ""}
-    <button class="btn primary block" type="submit">${up ? "Crear cuenta" : "Entrar"}</button>
-    ${up ? "" : `<button type="button" class="link" data-reset="1">Olvidé mi contraseña</button>`}
-   </form>
-   <p style="text-align:center;margin:0">${up ? "¿Ya tenés cuenta?" : "¿Primera vez?"} <button type="button" class="link" data-authmode="${up ? "in" : "up"}">${up ? "Ya tengo cuenta" : "Crear mi cuenta"}</button></p>
-  </div>`;
+  const L = S.login, app = document.getElementById("app");
+  if (!L.p) {
+    app.innerHTML = `<div class="auth"><div class="brand"><img src="icons/icon-192.png" alt=""><h1>Mi Plan</h1><p class="muted" style="margin:0">¿Quién va a entrar?</p></div>
+     <div class="pick">${["N", "K", "S"].map(p => `<button type="button" data-who="${p}"><span class="avatar av-${p}">${P[p].name[0]}</span><span>${P[p].name}<br><span class="small muted">${S.names[p] ? "Entrar con mi PIN" : "Primera vez: crear mi PIN"}</span></span></button>`).join("")}</div></div>`;
+    return;
+  }
+  const exists = S.names[L.p];
+  const title = exists ? "Escribí tu PIN" : (L.pin1 ? "Repetí tu PIN" : "Creá tu PIN de 4 números");
+  const dots = [0, 1, 2, 3].map(i => `<span style="width:18px;height:18px;border-radius:50%;border:2px solid var(--ink);background:${i < L.pin.length ? "var(--ink)" : "transparent"}"></span>`).join("");
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
+  app.innerHTML = `<div class="auth"><div class="brand"><span class="avatar av-${L.p}" style="width:72px;height:72px;font-size:1.8rem">${P[L.p].name[0]}</span><h1>${P[L.p].name}</h1><p class="muted" style="margin:0">${title}</p></div>
+   <div class="row" style="justify-content:center;gap:16px" aria-label="PIN">${dots}</div>
+   ${L.err ? `<p class="err" role="alert" style="text-align:center">${esc(L.err)}</p>` : ""}
+   ${!exists && !L.pin1 ? `<p class="small muted" style="text-align:center;margin:0">Elegí 4 números que te acordés. Lo vas a usar cada vez que entrés.</p>` : ""}
+   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:300px;margin:0 auto;width:100%">${keys.map(k => k ? `<button type="button" class="btn" style="min-height:64px;font-size:1.5rem" data-key="${k}" ${L.busy ? "disabled" : ""} aria-label="${k === "⌫" ? "Borrar" : k}">${k}</button>` : "<span></span>").join("")}</div>
+   <button type="button" class="link" data-backwho="1">← Elegir otro nombre</button>
+   ${exists ? `<p class="small muted" style="text-align:center;margin:0">¿Olvidaste tu PIN? Avisale a Ninoska para que lo reinicie.</p>` : ""}</div>`;
 }
-function renderPick() {
-  document.getElementById("app").innerHTML = `<div class="auth"><div class="brand"><h1>¿Quién sos?</h1><p class="muted" style="margin:0">Elegí tu nombre una sola vez. Así la app te muestra tu plan.</p></div>
-   <div class="pick">${["N", "K", "S"].map(p => `<button type="button" data-claim="${p}" ${S.taken[p] ? "disabled" : ""}><span class="avatar av-${p}">${P[p].name[0]}</span><span>${P[p].name}${S.taken[p] ? '<br><span class="small muted">Ya tiene cuenta</span>' : ""}</span></button>`).join("")}</div>
-   <button type="button" class="link" data-logout="1">Salir</button></div>`;
+async function pinComplete() {
+  const L = S.login, p = L.p, pin = L.pin;
+  L.busy = true; renderAuth();
+  try {
+    if (S.names[p]) { await FB.signIn(loginEmail(p), loginPass(p, pin)); return; }
+    if (!L.pin1) { L.pin1 = pin; L.pin = ""; L.busy = false; renderAuth(); return; }
+    if (L.pin1 !== pin) { L.pin1 = null; L.pin = ""; L.busy = false; L.err = "Los PIN no coinciden. Empecemos de nuevo."; renderAuth(); return; }
+    S.claiming = p; await FB.signUp(loginEmail(p), loginPass(p, pin));
+  } catch (e) {
+    S.claiming = null; L.pin = ""; L.busy = false;
+    L.err = e.code === "auth/too-many-requests" ? "Demasiados intentos. Esperá unos minutos." : e.code === "auth/network-request-failed" ? "No hay conexión a internet." : e.code === "auth/email-already-in-use" ? "Ese nombre ya tiene PIN. Escribí tu PIN." : "PIN incorrecto. Probá otra vez.";
+    if (e.code === "auth/email-already-in-use") { S.names[p] = true; L.pin1 = null; }
+    renderAuth();
+  }
 }
 
 // ---------- render principal
@@ -278,7 +294,8 @@ function viewPerfil() {
   const week = DAYN.map((dn, i) => `<details class="card" ${dow(TODAY) === i && p.id === cur.id ? "open" : ""}><summary>${dn}</summary>${SLOTS[pw].map(k => `<div><span class="label">${SLOTN[k]}</span><div>${esc(p.days[i]?.[k]?.t)}</div></div>`).join("")}</details>`).join("");
   const sup = (p.supl || []).map(x => `<li><b>${esc(x.n)}</b> · ${esc(x.w)} · ${x.d.length === 7 ? "todos los días" : x.d.map(i => DAYN[i].slice(0, 3)).join(", ")}</li>`).join("");
   return `<div class="stack"><h1>Perfil y plan</h1>
-   <div class="card"><div class="row between"><div class="row"><span class="avatar av-${S.person}">${P[S.person].name[0]}</span><div><b>${P[S.person].name}</b><div class="small muted">${esc(S.user.email)}</div></div></div><button type="button" class="btn small" data-logout="1">Salir</button></div>
+   <div class="card"><div class="row between"><div class="row"><span class="avatar av-${S.person}">${P[S.person].name[0]}</span><div><b>${P[S.person].name}</b><div class="small muted">Entrás con tu nombre y tu PIN</div></div></div><button type="button" class="btn small" data-logout="1">Salir</button></div>
+   ${S.pinEdit !== null ? `<div class="row"><input type="number" inputmode="numeric" id="newpin" placeholder="PIN nuevo de 4 números" style="flex:1 1 160px"><button type="button" class="btn small primary" data-pinsave="1">Guardar PIN</button></div>` : `<button type="button" class="btn small" data-pinedit="1">Cambiar mi PIN</button>`}
    <p class="small muted" style="margin:0">Tus registros son privados: solo vos los ves, desde cualquier celular donde entrés con tu correo.</p></div>
    ${owners.length > 1 ? `<div class="seg" role="group">${owners.map(o => `<button type="button" data-pw="${o}" aria-pressed="${pw === o}">${o === S.person ? "Mi plan" : "Plan de " + P[o].name}</button>`).join("")}</div>` : ""}
    <div class="card"><span class="label">Versiones del plan de ${P[pw].name}</span>${list.slice().reverse().map(x => `<button type="button" class="hday" data-pv="${x.id}" style="${x.id === p.id ? "border-color:var(--leaf)" : ""}"><b>${esc(x.name)}</b><span class="small muted">Desde el ${nice(x.start)}${x.id === cur.id ? " · vigente" : x.start > TODAY ? " · empieza pronto" : " · anterior"}</span></button>`).join("")}
@@ -301,10 +318,12 @@ document.addEventListener("click", async ev => {
   const t = ev.target.closest("button,[data-close]"); if (!t) return;
   const ds = t.dataset;
   if (ds.close !== undefined && (ev.target === t || t.tagName === "BUTTON")) { closeSheet(); return; }
-  if (ds.authmode) { S.authMode = ds.authmode; S.authErr = ""; renderAuth(); return; }
-  if (ds.reset) { const e = document.getElementById("a-email").value.trim(); if (!e) { S.authErr = "Escribí tu correo arriba y tocá otra vez «Olvidé mi contraseña»."; renderAuth(); return; } try { await FB.reset(e); toast("Te mandamos un correo para cambiar la contraseña"); } catch (err) { S.authErr = AUTH_ERR[err.code] || "No se pudo enviar el correo."; renderAuth(); } return; }
+  if (ds.who) { S.login = { p: ds.who, pin: "", pin1: null, err: "", busy: false }; renderAuth(); return; }
+  if (ds.backwho) { S.login = { p: null, pin: "", pin1: null, err: "", busy: false }; renderAuth(); return; }
+  if (ds.key) { const L = S.login; L.err = ""; if (ds.key === "⌫") L.pin = L.pin.slice(0, -1); else if (L.pin.length < 4) L.pin += ds.key; renderAuth(); if (L.pin.length === 4) pinComplete(); return; }
   if (ds.logout) { await FB.signOut(); return; }
-  if (ds.claim) { try { await FB.claim(S.user.uid, ds.claim); S.person = ds.claim; startData(); } catch (e) { toast("Ese nombre ya tiene cuenta. Elegí el tuyo."); await loadTaken(); renderPick(); } return; }
+  if (ds.pinedit) { S.pinEdit = ""; render(true); return; }
+  if (ds.pinsave) { const v = (document.getElementById("newpin").value || "").trim(); if (!/^\d{4}$/.test(v)) { toast("El PIN tiene que ser de 4 números"); return; } try { await FB.updatePass(loginPass(S.person, v)); S.pinEdit = null; toast("PIN cambiado"); render(true); } catch (e) { toast(e.code === "auth/requires-recent-login" ? "Por seguridad, salí y volvé a entrar, y cambiá el PIN otra vez." : "No se pudo cambiar el PIN"); } return; }
   if (ds.tab) { S.tab = ds.tab; S.editing = null; pendingDel = null; render(); window.scrollTo(0, 0); return; }
   if (ds.recipe) { openRecipe(ds.recipe); return; }
   if (ds.go) { openDay(addDays(S.date, +ds.go)); return; }
@@ -368,13 +387,6 @@ document.addEventListener("input", ev => {
 document.addEventListener("submit", async ev => {
   ev.preventDefault();
   const id = ev.target.id;
-  if (id === "authform") {
-    const e = document.getElementById("a-email").value.trim(), p = document.getElementById("a-pass").value;
-    if (!e || !p) { S.authErr = "Escribí tu correo y contraseña."; renderAuth(); return; }
-    try { S.authErr = ""; if (S.authMode === "up") await FB.signUp(e, p); else await FB.signIn(e, p); }
-    catch (err) { S.authErr = AUTH_ERR[err.code] || "No se pudo entrar. Intentá de nuevo."; renderAuth(); document.getElementById("a-email").value = e; }
-    return;
-  }
   if (id === "outform" && S.day) { const what = document.getElementById("out-what").value.trim(); if (!what) return; S.day.out = S.day.out || []; S.day.out.push({ meal: document.getElementById("out-meal").value, what, where: document.getElementById("out-where").value.trim() }); changed(); render(true); toast("Comida agregada"); return; }
   if (id === "shopform") { const name = document.getElementById("sh-name").value.trim(); if (!name) return; const item = { id: "u" + Date.now().toString(36), cat: document.getElementById("sh-cat").value, name, qty: document.getElementById("sh-qty").value.trim(), who: S.person === "S" ? "S" : "NK", have: false }; saveShop([...(S.shop.items || []), item]); toast("Agregado a la lista"); }
 });
