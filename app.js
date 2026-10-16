@@ -172,7 +172,8 @@ function viewHoy() {
       `<div class="seg status" role="group" aria-label="${SLOTN[k]}">${[["ok", "✓ Cumplí"], ["cambio", "✎ Cambié"], ["no", "✗ No comí"]].map(([v, x]) => `<button type="button" data-meal="${k}" data-v="${v}" aria-pressed="${m.s === v}">${x}</button>`).join("")}</div>
       ${m.s === "cambio" || m.s === "no" ? `<label class="f">${m.s === "cambio" ? "¿Qué comiste en su lugar?" : "¿Por qué? (opcional)"}<textarea data-mnote="${k}">${esc(m.note)}</textarea></label>` : ""}`}</section>`;
   }).join("");
-  const cook = me === "K" ? `<section class="card" style="border-color:var(--noel)"><span class="label c-N">${I.pot}Para cocinar hoy · menú de Noel</span>${SLOTS.N.map(k => { const pm = meal("N", S.date, k); return `<div style="display:grid;gap:6px"><b class="c-N">${SLOTN[k]}</b><div>${esc(pm.t)}</div>${recipeChips(pm.r)}</div>`; }).join("")}<p class="small muted" style="margin:0">Solo para ver. Noel marca lo suyo desde su cuenta.</p></section>` : "";
+  const cookFor = me === "K" ? ["N"] : me === "S" ? ["N", "K"] : [];
+  const cook = cookFor.map(o => `<section class="card" style="border-color:var(--${o === "N" ? "noel" : "nino"})"><span class="label c-${o}">${I.pot}Para cocinar hoy · menú de ${P[o].name}</span>${SLOTS[o].map(k => { const pm = meal(o, S.date, k); return `<div style="display:grid;gap:6px"><b class="c-${o}">${SLOTN[k]}</b><div>${esc(pm.t)}</div>${recipeChips(pm.r)}</div>`; }).join("")}<p class="small muted" style="margin:0">Solo para ver y cocinar. ${P[o].name} marca lo suyo desde su cuenta.</p></section>`).join("");
   const sp = supsFor(me, S.date);
   const supl = `<section class="card"><span class="label">${I.pill}Suplementos</span>${sp.length ? sp.map(x => `<label class="check ${d.supl[x.key] ? "on" : ""}"><input type="checkbox" data-supl="${x.key}" ${d.supl[x.key] ? "checked" : ""}><span><b>${esc(x.n)}</b><br><span class="small muted">${esc(x.w)}</span></span></label>`).join("") : '<p class="muted small" style="margin:0">Hoy no hay suplementos en tu plan.</p>'}</section>`;
   const w = d.water || 0;
@@ -284,7 +285,7 @@ function viewPerfil() {
    ${editableOwners().includes(pw) ? `<button type="button" class="btn primary" data-newplan="${pw}">+ Cargar plan nuevo de ${P[pw].name}</button><p class="small muted" style="margin:0">El plan nuevo empieza en la fecha que elijás. El historial con los planes anteriores se queda guardado.</p>` : ""}</div>
    <h2>${esc(p.name)}</h2>${week}
    <div class="card"><span class="label">${I.pill}Suplementos de este plan</span><ul style="margin:0;padding-left:20px">${sup || "<li>Ninguno</li>"}</ul></div>
-   <p class="small muted" style="text-align:center">Para instalar: en iPhone, Safari → Compartir → «Agregar a pantalla de inicio». En Android, Chrome → ⋮ → «Instalar app».</p></div>`;
+   <div class="card"><span class="label">Instalar en el celular</span><div><b>iPhone:</b> abrí la app en Safari → botón Compartir (cuadrito con flecha) → «Agregar a pantalla de inicio» → Agregar.</div><div><b>Android:</b> abrí la app en Chrome → menú ⋮ → «Instalar app» o «Agregar a la pantalla principal».</div></div></div>`;
 }
 function viewEditor() {
   const e = S.editing;
