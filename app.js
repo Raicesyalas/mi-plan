@@ -1,5 +1,5 @@
 import { FB } from "./fb.js";
-import { R, PLANS, SHOP_DEFAULT } from "./data.js";
+import { R, PLANS, SHOP_DEFAULT, SHOP_ADD } from "./data.js";
 
 // ---------- constantes
 const P = { N: { name: "Noel", full: "Noel" }, K: { name: "Ninoska", full: "Ninoska" }, S: { name: "Stefanie", full: "Stefanie" } };
@@ -56,6 +56,7 @@ let saveTimer = null, saveChain = Promise.resolve(), pendingDel = null;
 const visibleOwners = () => S.person === "S" ? ["S", "N", "K"] : S.person === "K" ? ["K", "N"] : ["N", "K"];
 const editableOwners = () => S.person === "S" ? ["S"] : ["N", "K"];
 function plansOf(p) { return [...PLANS[p], ...(S.plans[p] || [])].sort((a, b) => a.start < b.start ? -1 : 1); }
+const goalW = (p, date) => planFor(p, date)?.water || 8;
 function planFor(p, date) { const list = plansOf(p); let cur = list[0]; for (const x of list) if (x.start <= date) cur = x; return cur; }
 function meal(p, date, k) { const pl = planFor(p, date); return pl?.days?.[dow(date)]?.[k] || { t: "", r: [] }; }
 function supsFor(p, date) { const pl = planFor(p, date); const di = dow(date); return (pl?.supl || []).map((x, i) => ({ ...x, key: `${i}-${x.w}` })).filter(x => x.d.includes(di)); }
@@ -83,7 +84,7 @@ const loginPass = (p, pin) => "MiPlan-" + pin + "-" + p;
 function startData() {
   const err = e => console.warn(e);
   for (const o of visibleOwners()) S.unsubs.push(FB.watchQuery("plans", [["owner", "==", o]], null, null, list => { S.plans[o] = list; render(); }, err));
-  S.unsubs.push(FB.watch("shop/list", d => { if (!d) { FB.set("shop/list", { ...clone(SHOP_DEFAULT), updated: Date.now() }).catch(err); return; } S.shop = d; if (S.tab === "super") render(true); }, err));
+  S.unsubs.push(FB.watch("shop/list", d => { if (!d) { FB.set("shop/list", { ...clone(SHOP_DEFAULT), updated: Date.now() }).catch(err); return; } S.shop = d; mergeShopAdd(d); if (S.tab === "super") render(true); }, err));
   S.unsubs.push(FB.watchQuery(`users/${S.user.uid}/days`, [], ["date", "desc"], 120, list => { S.history = list; if (S.tab === "historial") render(true); }, err));
   document.getElementById("tabs").hidden = false;
   openDay(S.date);
@@ -160,7 +161,7 @@ function score(day, person) {
   let tot = 0, ok = 0;
   SLOTS[person].forEach(k => { const m = meal(person, day.date, k); if (isFixed(m.t)) return; tot++; const s = day.meals?.[k]?.s; if (s === "ok") ok++; else if (s === "cambio") ok += .5; });
   const sp = supsFor(person, day.date); tot += sp.length; sp.forEach(x => { if (day.supl?.[x.key]) ok++; });
-  tot += 1; ok += Math.min(1, (day.water || 0) / 8);
+  tot += 1; ok += Math.min(1, (day.water || 0) / goalW(person, day.date));
   return tot ? Math.round(ok / tot * 100) : 0;
 }
 function ring(pct) { const r = 30, c = 2 * Math.PI * r; return `<svg viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="36" r="${r}" fill="none" stroke="var(--leaf-soft)" stroke-width="8"/><circle cx="36" cy="36" r="${r}" fill="none" stroke="var(--leaf)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${c * pct / 100} ${c}" transform="rotate(-90 36 36)"/><text x="36" y="41" text-anchor="middle" font-size="16" font-weight="700" fill="var(--ink)">${pct}%</text></svg>`; }
@@ -194,8 +195,8 @@ function viewHoy() {
   const supl = `<section class="card"><span class="label">${I.pill}Suplementos</span>${sp.length ? sp.map(x => `<label class="check ${d.supl[x.key] ? "on" : ""}"><input type="checkbox" data-supl="${x.key}" ${d.supl[x.key] ? "checked" : ""}><span><b>${esc(x.n)}</b><br><span class="small muted">${esc(x.w)}</span></span></label>`).join("") : '<p class="muted small" style="margin:0">Hoy no hay suplementos en tu plan.</p>'}</section>`;
   const w = d.water || 0;
   const water = `<section class="card"><div class="card-h"><span class="label">${I.drop}Agua</span><span><span class="water-n">${w}</span> <span class="muted small">vasos</span></span></div>
-   <div class="glasses">${Array.from({ length: Math.max(8, w) }, (_, i) => `<button type="button" class="glass ${i < w ? "on" : ""}" data-water="${i + 1}" aria-label="${i + 1} vasos"></button>`).join("")}</div>
-   <div class="row"><button type="button" class="btn small" data-wadd="-1">− 1</button><button type="button" class="btn small primary" data-wadd="1">+ 1 vaso</button><span class="small muted">Meta: 8 vasos</span></div></section>`;
+   <div class="glasses">${Array.from({ length: Math.max(goalW(S.person, d.date), w) }, (_, i) => `<button type="button" class="glass ${i < w ? "on" : ""}" data-water="${i + 1}" aria-label="${i + 1} vasos"></button>`).join("")}</div>
+   <div class="row"><button type="button" class="btn small" data-wadd="-1">− 1</button><button type="button" class="btn small primary" data-wadd="1">+ 1 vaso</button><span class="small muted">Meta: ${goalW(S.person, d.date)} vasos</span></div></section>`;
   const act = `<section class="card"><span class="label">${I.run}Actividad</span>
    <div class="toggle"><b>${I.run}Hice ejercicio</b><button type="button" class="switch" role="switch" aria-label="Hice ejercicio" aria-checked="${!!d.exercise.on}" data-sw="exercise"></button></div>
    ${d.exercise.on ? `<div class="grid2"><label class="f">Tipo<input type="text" data-f="exercise.type" value="${esc(d.exercise.type)}" placeholder="Pesas, bici…"></label><label class="f">Minutos<input type="number" inputmode="numeric" data-f="exercise.min" value="${esc(d.exercise.min)}"></label></div>` : ""}
@@ -264,7 +265,14 @@ function viewSuper() {
    ${cats.map(c => { const its = items.filter(i => i.cat === c && show(i)); if (!its.length) return ""; return `<section class="card" style="gap:0"><span class="label" style="padding-bottom:6px">${esc(c)}</span>${its.map(i => `<label class="shop-item ${i.have ? "have" : ""}"><input type="checkbox" data-have="${esc(i.id)}" ${i.have ? "checked" : ""} aria-label="Ya tengo ${esc(i.name)}"><span><span class="nm"><b>${esc(i.name)}</b></span>${i.who && i.who !== "A" ? `<span class="who-tag c-${i.who}">${WHO_LABEL[i.who] || ""}</span>` : ""}<br><span class="small muted">${esc(i.qty)}</span></span><button type="button" class="del ${pendingDel === "sh" + i.id ? "confirm" : ""}" data-delshop="${esc(i.id)}">${pendingDel === "sh" + i.id ? "¿Quitar?" : "✕"}</button></label>`).join("")}</section>`; }).join("")}
    <button type="button" class="btn ${pendingDel === "reset" ? "primary" : ""}" data-shopreset="1">${pendingDel === "reset" ? "Tocá otra vez para confirmar" : "Semana nueva: todo pasa a «falta»"}</button></div>`;
 }
-async function saveShop(items) { S.shop = { ...S.shop, items }; render(true); try { await FB.set("shop/list", { items, updated: Date.now() }); } catch (e) { toast("No se pudo guardar la lista"); } }
+function mergeShopAdd(d) {
+  if (!SHOP_ADD || (d.merged || []).includes(SHOP_ADD.tag)) return;
+  const norm = x => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const have = new Set((d.items || []).map(i => norm(i.name)));
+  const add = SHOP_ADD.items.filter(i => !have.has(norm(i.name)));
+  FB.set("shop/list", { items: [...(d.items || []), ...add], merged: [...(d.merged || []), SHOP_ADD.tag], updated: Date.now() }).catch(() => {});
+}
+async function saveShop(items) { S.shop = { ...S.shop, items }; render(true); try { await FB.set("shop/list", { items, merged: S.shop.merged || [], updated: Date.now() }); } catch (e) { toast("No se pudo guardar la lista"); } }
 
 // ---------- HISTORIAL
 function viewHistorial() {
@@ -302,14 +310,16 @@ function viewPerfil() {
    ${editableOwners().includes(pw) ? `<button type="button" class="btn primary" data-newplan="${pw}">+ Cargar plan nuevo de ${P[pw].name}</button><p class="small muted" style="margin:0">El plan nuevo empieza en la fecha que elijás. El historial con los planes anteriores se queda guardado.</p>` : ""}</div>
    <h2>${esc(p.name)}</h2>${week}
    <div class="card"><span class="label">${I.pill}Suplementos de este plan</span><ul style="margin:0;padding-left:20px">${sup || "<li>Ninguno</li>"}</ul></div>
+   ${p.notes?.length ? `<div class="card"><span class="label">Recomendaciones del plan</span><ul style="margin:0;padding-left:20px;display:grid;gap:6px">${p.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
    <div class="card"><span class="label">Instalar en el celular</span><div><b>iPhone:</b> abrí la app en Safari → botón Compartir (cuadrito con flecha) → «Agregar a pantalla de inicio» → Agregar.</div><div><b>Android:</b> abrí la app en Chrome → menú ⋮ → «Instalar app» o «Agregar a la pantalla principal».</div></div></div>`;
 }
+const SUPW = ["En ayunas", "Mañana", "Con el desayuno", "Mediodía", "Con el almuerzo", "Noche", "Con la cena", "Antes de la comida libre", "Media hora antes de dormir"];
 function viewEditor() {
   const e = S.editing;
   return `<div class="stack"><h1>Plan nuevo de ${P[e.owner].name}</h1><p class="muted small" style="margin:0">Copié el plan vigente para que solo cambiés lo nuevo.</p>
    <div class="card"><label class="f">Nombre<input type="text" id="pe-name" value="${esc(e.name)}"></label><label class="f">Empieza el<input type="date" id="pe-start" value="${esc(e.start)}"></label></div>
    ${DAYN.map((dn, i) => `<div class="card"><b>${dn}</b>${SLOTS[e.owner].map(k => `<label class="f">${SLOTN[k]}<textarea data-pe="${i}.${k}">${esc(e.days[i][k]?.t)}</textarea></label>`).join("")}</div>`).join("")}
-   <div class="card"><span class="label">${I.pill}Suplementos</span>${e.supl.map((s, j) => `<div class="stack" style="gap:6px;border-top:1px solid var(--line);padding-top:8px"><input type="text" data-ps="${j}.n" value="${esc(s.n)}" aria-label="Suplemento" placeholder="Nombre"><div class="grid2"><select data-ps="${j}.w" aria-label="Momento">${["Mañana", "Mediodía", "Noche"].map(o => `<option ${s.w === o ? "selected" : ""}>${o}</option>`).join("")}</select><button type="button" class="btn small" data-psdel="${j}">Quitar</button></div><div class="row">${DAYN.map((dn, i) => `<label class="small"><input type="checkbox" data-psd="${j}.${i}" ${s.d.includes(i) ? "checked" : ""}> ${dn.slice(0, 3)}</label>`).join("")}</div></div>`).join("")}<button type="button" class="btn small" data-psadd="1">+ Agregar suplemento</button></div>
+   <div class="card"><span class="label">${I.pill}Suplementos</span>${e.supl.map((s, j) => `<div class="stack" style="gap:6px;border-top:1px solid var(--line);padding-top:8px"><input type="text" data-ps="${j}.n" value="${esc(s.n)}" aria-label="Suplemento" placeholder="Nombre"><div class="grid2"><select data-ps="${j}.w" aria-label="Momento">${[...new Set([...SUPW, s.w])].map(o => `<option ${s.w === o ? "selected" : ""}>${o}</option>`).join("")}</select><button type="button" class="btn small" data-psdel="${j}">Quitar</button></div><div class="row">${DAYN.map((dn, i) => `<label class="small"><input type="checkbox" data-psd="${j}.${i}" ${s.d.includes(i) ? "checked" : ""}> ${dn.slice(0, 3)}</label>`).join("")}</div></div>`).join("")}<button type="button" class="btn small" data-psadd="1">+ Agregar suplemento</button></div>
    <div class="row"><button type="button" class="btn" data-cancelplan="1">Cancelar</button><button type="button" class="btn primary" data-saveplan="1">Guardar plan nuevo</button></div></div>`;
 }
 
@@ -347,7 +357,7 @@ document.addEventListener("click", async ev => {
   if (ds.shopreset) { if (pendingDel === "reset") { pendingDel = null; saveShop(S.shop.items.map(i => ({ ...i, have: false }))); toast("Lista lista para la semana nueva"); } else { pendingDel = "reset"; render(true); } return; }
   if (ds.pw) { S.planWho = ds.pw; S.planView = null; render(true); return; }
   if (ds.pv) { S.planView = ds.pv; render(true); return; }
-  if (ds.newplan) { const o = ds.newplan; const c = clone(planFor(o, TODAY)); S.editing = { owner: o, name: "Plan nuevo", start: addDays(TODAY, 1), days: c.days, supl: c.supl || [] }; render(); window.scrollTo(0, 0); return; }
+  if (ds.newplan) { const o = ds.newplan; const c = clone(planFor(o, TODAY)); S.editing = { owner: o, name: "Plan nuevo", start: addDays(TODAY, 1), days: c.days, supl: c.supl || [], notes: c.notes || [], water: c.water || 8 }; render(); window.scrollTo(0, 0); return; }
   if (ds.cancelplan) { S.editing = null; render(); return; }
   if (ds.psadd) { S.editing.supl.push({ n: "", w: "Mañana", d: [0, 1, 2, 3, 4, 5, 6] }); render(true); return; }
   if (ds.psdel) { S.editing.supl.splice(+ds.psdel, 1); render(true); return; }
@@ -358,7 +368,7 @@ document.addEventListener("click", async ev => {
     const id = `${e.owner}-${e.start}`;
     const days = e.days.map(day => Object.fromEntries(SLOTS[e.owner].map(k => [k, { t: day[k]?.t || "", r: day[k]?.r || [] }])));
     const supl = e.supl.filter(s => s.n.trim()).map(s => ({ n: s.n.trim(), w: s.w, d: s.d }));
-    try { await FB.set("plans/" + id, { id, owner: e.owner, name, start: e.start, created: Date.now(), days, supl }); S.editing = null; S.planWho = e.owner; S.planView = id; toast("Plan guardado"); render(); } catch (err) { toast("No se pudo guardar el plan"); }
+    try { await FB.set("plans/" + id, { id, owner: e.owner, name, start: e.start, created: Date.now(), days, supl, notes: e.notes || [], water: e.water || 8 }); S.editing = null; S.planWho = e.owner; S.planView = id; toast("Plan guardado"); render(); } catch (err) { toast("No se pudo guardar el plan"); }
   }
 });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeSheet(); });
